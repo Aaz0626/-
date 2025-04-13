@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>充值中心</title>
+    <script src="https://cdn.staticfile.net/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #4a90e2;
+            --background: #f8f9fa;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: var(--background);
+        }
+
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: var(--primary);
+            text-align: center;
+            margin-bottom: 2rem;
+            font-size: 2.2rem;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin: 1.2rem 0;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.6rem;
+            color: #666;
+            font-weight: 500;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--secondary);
+            outline: none;
+        }
+
+        button {
+            background: var(--secondary);
+            color: white;
+            padding: 1rem;
+            width: 100%;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+        }
+
+        #finalAmount {
+            font-size: 1.4rem;
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            margin: 15vh auto;
+            width: 320px;
+            border-radius: 12px;
+            position: relative;
+        }
+
+        .payment-option {
+            padding: 1rem;
+            margin: 1rem 0;
+            border: 2px solid #eee;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .back-btn {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+        }
+
+        .hidden { display: none }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>充值中心</h1>
+        
+        <div class="form-group">
+            <label>充值类型：</label>
+            <select id="rechargeType" onchange="toggleFields()">
+                <option value="phone">话费充值</option>
+                <option value="electric">电费充值</option>
+            </select>
+        </div>
+
+        <div class="form-group" id="phoneField">
+            <label>手机号码：</label>
+            <input type="tel" id="phone" pattern="[0-9]{11}" placeholder="请输入11位手机号码">
+        </div>
+
+        <div class="form-group">
+            <label>充值金额（200元起充）：</label>
+            <input type="number" id="amount" min="200" oninput="calculateDiscount()">
+            <div style="margin-top: 0.8rem">
+                折后应付金额：<span id="finalAmount">0</span> 元
+            </div>
+        </div>
+
+        <div id="electricFields" class="hidden">
+            <div class="form-group">
+                <label>所在地区：</label>
+                <input type="text" id="area">
+            </div>
+            <div class="form-group">
+                <label>户号：</label>
+                <input type="text" id="accountNumber">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>客户姓名：</label>
+            <input type="text" id="name">
+        </div>
+
+        <button onclick="submitOrder()">立即充值</button>
+    </div>
+
+    <!-- 支付弹窗 -->
+    <div id="paymentModal" class="modal">
+        <div class="modal-content">
+            <button class="back-btn hidden" onclick="handleBack()">← 返回</button>
+            <div id="paymentOptions">
+                <h3 style="margin-bottom: 1.5rem">选择支付方式</h3>
+                <div class="payment-option" onclick="showAlipay()">
+                    支付宝支付
+                </div>
+                <div class="payment-option" onclick="showUSDT()">
+                    USDT支付
+                </div>
+            </div>
+            <div id="alipayDetail" class="hidden">
+                <h3>支付宝支付</h3>
+                <div id="qrcode"></div>
+                <p>请扫码完成支付</p >
+            </div>
+            <div id="usdtDetail" class="hidden">
+                <h3>USDT支付</h3>
+                <input type="text" value="TLGd5Sbo2g9ZvaDowi5CvLvaYZNSUhiCrj" 
+                       style="width:100%; padding:0.8rem; margin:1rem 0" readonly>
+                <button onclick="copyAddress()">复制地址</button>
+            </div>
+            <button onclick="closeModal()" style="margin-top:1rem">关闭窗口</button>
+        </div>
+    </div>
+
+    <script>
+        // 初始化字段显示
+        function toggleFields() {
+            const type = document.getElementById('rechargeType').value;
+            document.getElementById('electricFields').classList.toggle('hidden', type !== 'electric');
+            document.getElementById('phoneField').classList.toggle('hidden', type === 'electric');
+        }
+
+        // 折扣计算
+        function calculateDiscount() {
+            const amount = parseInt(document.getElementById('amount').value) || 0;
+            let discount = amount >= 1000 ? 0.85 : amount >= 200 ? 0.9 : 1;
+            document.getElementById('finalAmount').textContent = (amount * discount).toFixed(2);
+        }
+
+        // 提交验证
+        function submitOrder() {
+            const type = document.getElementById('rechargeType').value;
+            const amount = document.getElementById('amount').value;
+            const phone = document.getElementById('phone').value;
+            const name = document.getElementById('name').value;
+
+            if (amount < 200) return alert('充值金额不能低于200元');
+            if (type === 'phone' && !/^\d{11}$/.test(phone)) return alert('请输入有效的11位手机号码');
+            if (type === 'electric' && (!document.getElementById('area').value || !document.getElementById('accountNumber').value)) 
+                return alert('请填写完整的电费信息');
+            if (!name) return alert('请填写客户姓名');
+
+            showPaymentModal();
+        }
+
+        // 显示支付窗口
+        function showPaymentModal() {
+            document.getElementById('paymentModal').style.display = 'block';
+            resetPaymentView();
+        }
+
+        // 重置支付界面
+        function resetPaymentView() {
+            document.querySelector('.back-btn').classList.add('hidden');
+            document.getElementById('paymentOptions').classList.remove('hidden');
+            document.getElementById('alipayDetail').classList.add('hidden');
+            document.getElementById('usdtDetail').classList.add('hidden');
+        }
+
+        // 返回处理
+        function handleBack() {
+            resetPaymentView();
+        }
+
+        // 支付宝支付
+        function showAlipay() {
+            document.querySelector('.back-btn').classList.remove('hidden');
+            document.getElementById('paymentOptions').classList.add('hidden');
+            document.getElementById('alipayDetail').classList.remove('hidden');
+            
+            // 确保二维码只生成一次
+            if (!document.getElementById('qrcode').innerHTML) {
+                new QRCode(document.getElementById('qrcode'), 'https://qr.alipay.com/fkx15427dq8cgfmh3vll81d');
+            }
+        }
+
+        // USDT支付
+        function showUSDT() {
+            document.querySelector('.back-btn').classList.remove('hidden');
+            document.getElementById('paymentOptions').classList.add('hidden');
+            document.getElementById('usdtDetail').classList.remove('hidden');
+        }
+
+        // 通用功能
+        function closeModal() {
+            document.getElementById('paymentModal').style.display = 'none';
+            resetPaymentView();
+        }
+
+        function copyAddress() {
+            navigator.clipboard.writeText('TLGd5Sbo2g9ZvaDowi5CvLvaYZNSUhiCrj');
+            alert('地址已复制');
+        }
+
+        // 初始化字段显示
+        toggleFields();
+    </script>
+</body>
+</html>
